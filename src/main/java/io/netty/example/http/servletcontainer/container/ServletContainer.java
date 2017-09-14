@@ -3,6 +3,7 @@ package io.netty.example.http.servletcontainer.container;
 import io.netty.example.http.servletcontainer.util.SimpleUrlMatcher;
 import io.netty.example.http.servletcontainer.util.UrlMatcher;
 
+import javax.servlet.ServletContext;
 import javax.servlet.http.HttpServlet;
 import java.util.HashMap;
 
@@ -42,7 +43,7 @@ public class ServletContainer {
      * @param urlPattern
      * @return
      */
-    public synchronized HttpServlet resolveServlet(String urlPattern){
+    public synchronized HttpServlet resolveServlet(ServletContext context,String urlPattern){
 
         for( HashMap.Entry<String,HttpServlet> entry:servletMap.entrySet()){
             if(urlMatcher.match(entry.getKey(),urlPattern)){

@@ -1,5 +1,6 @@
 package io.netty.example.http.servletcontainer.container;
 
+import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 
@@ -7,18 +8,17 @@ public class ServletFactory {
 
     /**
      * 加载servlet
-     * @param config
+     * @param info
      * @return
      */
-    public HttpServlet loadServlet(ServletInfo config){
 
-        String className = config.getClassName();
-
+    public HttpServlet loadServlet(ServletInfo info,ServletConfig config){
+        String className = info.getClassName();
         try {
             Class cls = Class.forName(className);
             Object servlet = cls.newInstance();
             if(servlet instanceof HttpServlet){
-                ((HttpServlet) servlet).init();
+                ((HttpServlet) servlet).init(config);
                 return (HttpServlet) servlet;
             }
         } catch (ClassNotFoundException e) {
@@ -32,6 +32,5 @@ public class ServletFactory {
         }
 
         return null;
-
     }
 }

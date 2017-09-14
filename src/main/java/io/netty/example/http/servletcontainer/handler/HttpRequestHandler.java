@@ -19,7 +19,6 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<FullHttpRequ
     protected void channelRead0(ChannelHandlerContext ctx, FullHttpRequest msg) throws Exception {
 
         NettyHttpServletRequest request = new NettyHttpServletRequest(ctx,msg);
-
         NettyHttpServletResponse response = new NettyHttpServletResponse(ctx);
         container.onRequest(request,response);
         response.flushBuffer();
