@@ -95,6 +95,7 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
 
             }else{
                 //保存post的数据到内存或者文件
+                fileHttpData((HttpContent) msg);
             }
         }
 
@@ -107,6 +108,9 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
                 postDatas.add(data);
             }
         }
+    }
+    public void fileHttpData(HttpContent content){
+
     }
 
 }
