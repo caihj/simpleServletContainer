@@ -2,17 +2,14 @@ package io.netty.example.http.servletcontainer.net;
 
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.example.http.servletcontainer.util.GenTools;
-import io.netty.handler.codec.http.FullHttpRequest;
-import io.netty.handler.codec.http.HttpHeaderNames;
-import io.netty.handler.codec.http.HttpHeaders;
-import io.netty.handler.codec.http.QueryStringDecoder;
+import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.cookie.ServerCookieDecoder;
+import io.netty.handler.codec.http.multipart.Attribute;
+import io.netty.handler.codec.http.multipart.InterfaceHttpData;
 
-import javax.servlet.RequestDispatcher;
-import javax.servlet.ServletInputStream;
+import javax.servlet.*;
+import javax.servlet.http.*;
 import javax.servlet.http.Cookie;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpSession;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -30,7 +27,7 @@ import java.util.*;
  */
 public class NettyHttpServletRequest implements HttpServletRequest {
 
-    private FullHttpRequest msg;
+    private HttpRequest msg;
 
     private ChannelHandlerContext ctx;
 
@@ -38,11 +35,74 @@ public class NettyHttpServletRequest implements HttpServletRequest {
 
     private String characterEncoding ;
 
-    private Map<String,String> paramsMap;
+    private Map<String, List<String>> paramsMap;
 
-    public NettyHttpServletRequest(ChannelHandlerContext ctx,FullHttpRequest msg){
+    private ServletContext servletContext;
+
+    /**
+     * 是否已经解析 params
+     */
+    private boolean parsePararms = false;
+
+    /**
+     * 保存 post 上来的所有数据
+     * @param ctx
+     * @param msg
+     */
+    private List<InterfaceHttpData> postDatas;
+
+
+
+    public NettyHttpServletRequest(ChannelHandlerContext ctx,HttpRequest msg){
         this.ctx = ctx;
         this.msg = msg;
+        //解析queryString
+
+    }
+
+    /**
+     * 解析queryString
+     */
+    public void parseQueryString(){
+        QueryStringDecoder decoder = new QueryStringDecoder(msg.uri(),Charset.forName(getCharacterEncoding()));
+        paramsMap = decoder.parameters();
+
+        if("application/x-www-form-urlencoded".equalsIgnoreCase(getContentType())){
+            //解析post的数据到paramsMap
+            if(postDatas!=null){
+                for(InterfaceHttpData data:postDatas){
+                    if (data.getHttpDataType() == InterfaceHttpData.HttpDataType.Attribute) {
+                        Attribute attribute = (Attribute) data;
+                        String name = attribute.getHttpDataType().name();
+                        String value="";
+                        try {
+                             value = attribute.getValue();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+
+                        List<String> list = paramsMap.get(name);
+                        if(list==null){
+                            list = new ArrayList<String>();
+                            paramsMap.put(name,list);
+                        }
+                        list.add(value);
+                    }
+                }
+            }
+        }
+
+        parsePararms = true;
+
+    }
+
+    /**
+     * 设置post提交的数据
+     * @param postDatas
+     */
+
+    public void setPostDatas(List<InterfaceHttpData> postDatas) {
+        this.postDatas = postDatas;
     }
 
     /**
@@ -216,6 +276,11 @@ public class NettyHttpServletRequest implements HttpServletRequest {
         return null;
     }
 
+    @Override
+    public String changeSessionId() {
+        return null;
+    }
+
 
     //先不实现
     @Override
@@ -239,6 +304,40 @@ public class NettyHttpServletRequest implements HttpServletRequest {
     @Override
     public boolean isRequestedSessionIdFromUrl() {
         return false;
+    }
+
+    //先不实现
+    @Override
+    public boolean authenticate(HttpServletResponse httpServletResponse) throws IOException, ServletException {
+        return false;
+    }
+
+    //先不实现
+    @Override
+    public void login(String s, String s1) throws ServletException {
+
+    }
+
+    //先不实现
+    @Override
+    public void logout() throws ServletException {
+
+    }
+
+    @Override
+    public Collection<Part> getParts() throws IOException, ServletException {
+        return null;
+    }
+
+    @Override
+    public Part getPart(String s) throws IOException, ServletException {
+        return null;
+    }
+
+    //先不实现
+    @Override
+    public <T extends HttpUpgradeHandler> T upgrade(Class<T> aClass) throws IOException, ServletException {
+        return null;
     }
 
 
@@ -287,6 +386,16 @@ public class NettyHttpServletRequest implements HttpServletRequest {
     }
 
     @Override
+    public long getContentLengthLong() {
+        String length = msg.headers().get(HttpHeaderNames.CONTENT_LENGTH);
+        if(length==null){
+            return  -1;
+        }else{
+            return Long.parseLong(length);
+        }
+    }
+
+    @Override
     public String getContentType() {
         return msg.headers().get(HttpHeaderNames.CONTENT_TYPE);
     }
@@ -298,22 +407,52 @@ public class NettyHttpServletRequest implements HttpServletRequest {
 
     @Override
     public String getParameter(String name) {
-        return null;
+        if(!parsePararms){
+            parseQueryString();
+        }
+        List<String> list =  paramsMap.get(name);
+        if(list!=null && list.size()>0){
+            return list.get(0);
+        }else {
+            return null;
+        }
     }
 
     @Override
     public Enumeration getParameterNames() {
-        return null;
+
+        if(!parsePararms){
+            parseQueryString();
+        }
+
+        final Iterator<Map.Entry<String, List<String>>> iterable = paramsMap.entrySet().iterator();
+        return new Enumeration() {
+            @Override
+            public boolean hasMoreElements() {
+                return iterable.hasNext();
+            }
+            @Override
+            public Object nextElement() {
+                return iterable.next().getKey();
+            }
+        };
     }
 
     @Override
     public String[] getParameterValues(String name) {
-        return new String[0];
+        if(!parsePararms){
+            parseQueryString();
+        }
+        List<String> list =  paramsMap.get(name);
+        return list.toArray(null);
     }
 
     @Override
     public Map getParameterMap() {
-        return null;
+        if(!parsePararms){
+            parseQueryString();
+        }
+        return paramsMap;
     }
 
 
@@ -469,4 +608,45 @@ public class NettyHttpServletRequest implements HttpServletRequest {
             return -1;
         }
     }
+
+    @Override
+    public ServletContext getServletContext() {
+        return servletContext;
+    }
+
+    public void setServletContext(ServletContext servletContext) {
+        this.servletContext = servletContext;
+    }
+
+    @Override
+    public AsyncContext startAsync() throws IllegalStateException {
+        return null;
+    }
+
+    @Override
+    public AsyncContext startAsync(ServletRequest servletRequest, ServletResponse servletResponse) throws IllegalStateException {
+        return null;
+    }
+
+    @Override
+    public boolean isAsyncStarted() {
+        return false;
+    }
+
+    @Override
+    public boolean isAsyncSupported() {
+        return false;
+    }
+
+    @Override
+    public AsyncContext getAsyncContext() {
+        return null;
+    }
+
+    @Override
+    public DispatcherType getDispatcherType() {
+        return null;
+    }
+
+
 }

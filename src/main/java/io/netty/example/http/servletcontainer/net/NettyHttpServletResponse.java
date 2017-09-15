@@ -6,12 +6,14 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.*;
 
 import javax.servlet.ServletOutputStream;
+import javax.servlet.WriteListener;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Writer;
 import java.nio.charset.Charset;
+import java.util.Collection;
 import java.util.Locale;
 
 public class NettyHttpServletResponse implements HttpServletResponse {
@@ -117,6 +119,26 @@ public class NettyHttpServletResponse implements HttpServletResponse {
     }
 
     @Override
+    public int getStatus() {
+        return 0;
+    }
+
+    @Override
+    public String getHeader(String s) {
+        return null;
+    }
+
+    @Override
+    public Collection<String> getHeaders(String s) {
+        return null;
+    }
+
+    @Override
+    public Collection<String> getHeaderNames() {
+        return null;
+    }
+
+    @Override
     public String getCharacterEncoding() {
         return charset;
     }
@@ -133,6 +155,16 @@ public class NettyHttpServletResponse implements HttpServletResponse {
 
         ServletOutputStream outputStream = new ServletOutputStream() {
             @Override
+            public boolean isReady() {
+                return ctx.channel().isWritable();
+            }
+
+            @Override
+            public void setWriteListener(WriteListener writeListener) {
+
+            }
+
+            @Override
             public void write(int b) throws IOException {
                 ByteBuf buf = ctx.alloc().buffer(4);
                 buf.writeByte(b);
@@ -140,7 +172,7 @@ public class NettyHttpServletResponse implements HttpServletResponse {
 
             @Override
             public void flush() throws IOException {
-
+                ctx.flush();
             }
 
             @Override
@@ -188,6 +220,11 @@ public class NettyHttpServletResponse implements HttpServletResponse {
     @Override
     public void setContentLength(int len) {
         response.headers().setInt(HttpHeaderNames.CONTENT_LENGTH, len);
+    }
+
+    @Override
+    public void setContentLengthLong(long l) {
+
     }
 
     @Override

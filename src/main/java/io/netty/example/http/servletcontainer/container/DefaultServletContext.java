@@ -1,19 +1,20 @@
 package io.netty.example.http.servletcontainer.container;
 
-import javax.servlet.RequestDispatcher;
-import javax.servlet.Servlet;
-import javax.servlet.ServletContext;
-import javax.servlet.ServletException;
+import javax.servlet.*;
+import javax.servlet.descriptor.JspConfigDescriptor;
 import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Enumeration;
+import java.util.EventListener;
+import java.util.Map;
 import java.util.Set;
 
 /**
  * servletContext 默认实现
  */
 public class DefaultServletContext implements ServletContext {
+
     @Override
     public String getContextPath() {
         return null;
@@ -35,12 +36,22 @@ public class DefaultServletContext implements ServletContext {
     }
 
     @Override
+    public int getEffectiveMajorVersion() {
+        return 0;
+    }
+
+    @Override
+    public int getEffectiveMinorVersion() {
+        return 0;
+    }
+
+    @Override
     public String getMimeType(String file) {
         return null;
     }
 
     @Override
-    public Set getResourcePaths(String path) {
+    public Set<String> getResourcePaths(String path) {
         return null;
     }
 
@@ -70,12 +81,12 @@ public class DefaultServletContext implements ServletContext {
     }
 
     @Override
-    public Enumeration getServlets() {
+    public Enumeration<Servlet> getServlets() {
         return null;
     }
 
     @Override
-    public Enumeration getServletNames() {
+    public Enumeration<String> getServletNames() {
         return null;
     }
 
@@ -110,8 +121,13 @@ public class DefaultServletContext implements ServletContext {
     }
 
     @Override
-    public Enumeration getInitParameterNames() {
+    public Enumeration<String> getInitParameterNames() {
         return null;
+    }
+
+    @Override
+    public boolean setInitParameter(String name, String value) {
+        return false;
     }
 
     @Override
@@ -120,7 +136,7 @@ public class DefaultServletContext implements ServletContext {
     }
 
     @Override
-    public Enumeration getAttributeNames() {
+    public Enumeration<String> getAttributeNames() {
         return null;
     }
 
@@ -136,6 +152,126 @@ public class DefaultServletContext implements ServletContext {
 
     @Override
     public String getServletContextName() {
+        return null;
+    }
+
+    @Override
+    public ServletRegistration.Dynamic addServlet(String servletName, String className) {
+        return null;
+    }
+
+    @Override
+    public ServletRegistration.Dynamic addServlet(String servletName, Servlet servlet) {
+        return null;
+    }
+
+    @Override
+    public ServletRegistration.Dynamic addServlet(String servletName, Class<? extends Servlet> servletClass) {
+        return null;
+    }
+
+    @Override
+    public <T extends Servlet> T createServlet(Class<T> clazz) throws ServletException {
+        return null;
+    }
+
+    @Override
+    public ServletRegistration getServletRegistration(String servletName) {
+        return null;
+    }
+
+    @Override
+    public Map<String, ? extends ServletRegistration> getServletRegistrations() {
+        return null;
+    }
+
+    @Override
+    public FilterRegistration.Dynamic addFilter(String filterName, String className) {
+        return null;
+    }
+
+    @Override
+    public FilterRegistration.Dynamic addFilter(String filterName, Filter filter) {
+        return null;
+    }
+
+    @Override
+    public FilterRegistration.Dynamic addFilter(String filterName, Class<? extends Filter> filterClass) {
+        return null;
+    }
+
+    @Override
+    public <T extends Filter> T createFilter(Class<T> clazz) throws ServletException {
+        return null;
+    }
+
+    @Override
+    public FilterRegistration getFilterRegistration(String filterName) {
+        return null;
+    }
+
+    @Override
+    public Map<String, ? extends FilterRegistration> getFilterRegistrations() {
+        return null;
+    }
+
+    @Override
+    public SessionCookieConfig getSessionCookieConfig() {
+        return null;
+    }
+
+    @Override
+    public void setSessionTrackingModes(Set<SessionTrackingMode> sessionTrackingModes) {
+
+    }
+
+    @Override
+    public Set<SessionTrackingMode> getDefaultSessionTrackingModes() {
+        return null;
+    }
+
+    @Override
+    public Set<SessionTrackingMode> getEffectiveSessionTrackingModes() {
+        return null;
+    }
+
+    @Override
+    public void addListener(String className) {
+
+    }
+
+    @Override
+    public <T extends EventListener> void addListener(T t) {
+
+    }
+
+    @Override
+    public void addListener(Class<? extends EventListener> listenerClass) {
+
+    }
+
+    @Override
+    public <T extends EventListener> T createListener(Class<T> clazz) throws ServletException {
+        return null;
+    }
+
+    @Override
+    public JspConfigDescriptor getJspConfigDescriptor() {
+        return null;
+    }
+
+    @Override
+    public ClassLoader getClassLoader() {
+        return null;
+    }
+
+    @Override
+    public void declareRoles(String... roleNames) {
+
+    }
+
+    @Override
+    public String getVirtualServerName() {
         return null;
     }
 }

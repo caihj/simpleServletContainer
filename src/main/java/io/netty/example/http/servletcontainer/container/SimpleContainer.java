@@ -78,6 +78,7 @@ public class SimpleContainer {
             public String getContextPath() {
                 return context.getContextPath();
             }
+
         };
 
         try {
