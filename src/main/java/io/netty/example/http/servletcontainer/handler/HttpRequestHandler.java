@@ -1,15 +1,13 @@
 package io.netty.example.http.servletcontainer.handler;
 
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.example.http.servletcontainer.container.SimpleContainer;
 import io.netty.example.http.servletcontainer.net.NettyHttpServletRequest;
 import io.netty.example.http.servletcontainer.net.NettyHttpServletResponse;
 import io.netty.handler.codec.http.*;
-import io.netty.handler.codec.http.multipart.DefaultHttpDataFactory;
-import io.netty.handler.codec.http.multipart.HttpDataFactory;
-import io.netty.handler.codec.http.multipart.HttpPostRequestDecoder;
-import io.netty.handler.codec.http.multipart.InterfaceHttpData;
+import io.netty.handler.codec.http.multipart.*;
 
 import java.util.List;
 
@@ -17,9 +15,23 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
 
     private SimpleContainer container;
 
+    /**
+     * 解析  multipart/form-data，application/x-www-form-urlencoded
+     */
     private HttpPostRequestDecoder decoder;
 
     private List<InterfaceHttpData> postDatas;
+
+    /**
+     * 保存除文件上传和表单之外的其他数据
+     */
+    private HttpData httpData;
+
+    String content_type ;
+
+    private final String formData="application/x-www-form-urlencoded";
+
+    private final String multipart="multipart/form-data";
 
     private static final HttpDataFactory factory =
             new DefaultHttpDataFactory(DefaultHttpDataFactory.MINSIZE);
@@ -45,41 +57,47 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
                 return;
             }
 
-            try {
-                decoder = new HttpPostRequestDecoder(factory, request);
-            } catch (HttpPostRequestDecoder.ErrorDataDecoderException e1) {
-                e1.printStackTrace();
-                ctx.channel().close();
-                return;
-            }
+            //post
+            content_type = nettyRequest.getContentType();
 
-            if (decoder != null) {
-                if (msg instanceof HttpContent) {
-                    // New chunk is received
-                    HttpContent chunk = (HttpContent) msg;
-                    try {
-                        decoder.offer(chunk);
-                    } catch (HttpPostRequestDecoder.ErrorDataDecoderException e1) {
-                        e1.printStackTrace();
-                        ctx.channel().close();
-                        return;
-                    }
-
-                    // example of reading chunk by chunk (minimize memory usage due to
-                    // Factory)
-                    readHttpData();
-                    // example of reading only if at the end
-                    if (chunk instanceof LastHttpContent) {
-                        nettyRequest.setPostDatas(postDatas);
-                        container.onRequest(nettyRequest,nettyResponse);
-                        nettyResponse.flushBuffer();
-                    }
+            if(formData.equals(content_type) || multipart.equals(content_type)){
+                try {
+                    decoder = new HttpPostRequestDecoder(factory, request);
+                } catch (HttpPostRequestDecoder.ErrorDataDecoderException e1) {
+                    e1.printStackTrace();
+                    ctx.channel().close();
+                    return;
                 }
-            } else {
-
-                ctx.channel().close();
             }
         }
+
+        if(msg instanceof HttpContent){
+            if(decoder!=null){
+                // New chunk is received
+                HttpContent chunk = (HttpContent) msg;
+                try {
+                    decoder.offer(chunk);
+                } catch (HttpPostRequestDecoder.ErrorDataDecoderException e1) {
+                    e1.printStackTrace();
+                    ctx.channel().close();
+                    return;
+                }
+
+                // example of reading chunk by chunk (minimize memory usage due to
+                // Factory)
+                readHttpData();
+                // example of reading only if at the end
+                if (chunk instanceof LastHttpContent) {
+                    nettyRequest.setPostDatas(postDatas);
+                    container.onRequest(nettyRequest,nettyResponse);
+                    nettyResponse.flushBuffer();
+                }
+
+            }else{
+                //保存post的数据到内存或者文件
+            }
+        }
+
     }
 
     public void readHttpData(){
