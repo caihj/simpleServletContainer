@@ -5,6 +5,7 @@ import io.netty.example.http.servletcontainer.util.GenTools;
 import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.cookie.ServerCookieDecoder;
 import io.netty.handler.codec.http.multipart.Attribute;
+import io.netty.handler.codec.http.multipart.HttpData;
 import io.netty.handler.codec.http.multipart.InterfaceHttpData;
 
 import javax.servlet.*;
@@ -49,9 +50,11 @@ public class NettyHttpServletRequest implements HttpServletRequest {
      * @param ctx
      * @param msg
      */
-    private List<InterfaceHttpData> postDatas;
+    private List<InterfaceHttpData> parts;
 
+    private Map<String,Part> partMap;
 
+    private HttpData httpData;
 
     public NettyHttpServletRequest(ChannelHandlerContext ctx,HttpRequest msg){
         this.ctx = ctx;
@@ -69,24 +72,17 @@ public class NettyHttpServletRequest implements HttpServletRequest {
 
         if("application/x-www-form-urlencoded".equalsIgnoreCase(getContentType())){
             //解析post的数据到paramsMap
-            if(postDatas!=null){
-                for(InterfaceHttpData data:postDatas){
-                    if (data.getHttpDataType() == InterfaceHttpData.HttpDataType.Attribute) {
-                        Attribute attribute = (Attribute) data;
-                        String name = attribute.getHttpDataType().name();
-                        String value="";
-                        try {
-                             value = attribute.getValue();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-
-                        List<String> list = paramsMap.get(name);
+            if(httpData!=null){
+                String data = httpData.content().toString();
+                QueryStringDecoder decoder1 = new QueryStringDecoder(data,Charset.forName(getCharacterEncoding()));
+                Map<String,List<String>> paramsMap1 = decoder1.parameters();
+                if(paramsMap1!=null){
+                    for(Map.Entry<String,List<String>> kv: paramsMap1.entrySet()){
+                        List<String> list = paramsMap.get(kv.getKey());
                         if(list==null){
-                            list = new ArrayList<String>();
-                            paramsMap.put(name,list);
+                            list = kv.getValue();
                         }
-                        list.add(value);
+                        list.addAll(kv.getValue());
                     }
                 }
             }
@@ -102,7 +98,11 @@ public class NettyHttpServletRequest implements HttpServletRequest {
      */
 
     public void setPostDatas(List<InterfaceHttpData> postDatas) {
-        this.postDatas = postDatas;
+        this.parts = postDatas;
+    }
+
+    public void setHttpData(HttpData httpData) {
+        this.httpData = httpData;
     }
 
     /**
@@ -326,7 +326,13 @@ public class NettyHttpServletRequest implements HttpServletRequest {
 
     @Override
     public Collection<Part> getParts() throws IOException, ServletException {
-        return null;
+
+        List<Part> allParts = new ArrayList<Part>(parts.size());
+        for(InterfaceHttpData data:parts){
+            allParts.add(new NettyPart(data));
+        }
+
+        return allParts;
     }
 
     @Override

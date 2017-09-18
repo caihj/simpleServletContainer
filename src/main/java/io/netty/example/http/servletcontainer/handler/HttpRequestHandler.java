@@ -9,6 +9,8 @@ import io.netty.example.http.servletcontainer.net.NettyHttpServletResponse;
 import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.multipart.*;
 
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> {
@@ -20,7 +22,7 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
      */
     private HttpPostRequestDecoder decoder;
 
-    private List<InterfaceHttpData> postDatas;
+    private List<InterfaceHttpData> postDatas = new ArrayList<InterfaceHttpData>();
 
     /**
      * 保存除文件上传和表单之外的其他数据
@@ -29,9 +31,9 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
 
     String content_type ;
 
-    private final String formData="application/x-www-form-urlencoded";
-
     private final String multipart="multipart/form-data";
+
+    private final int max_in_memory_content = 1024*1024;
 
     private static final HttpDataFactory factory =
             new DefaultHttpDataFactory(DefaultHttpDataFactory.MINSIZE);
@@ -60,13 +62,20 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
             //post
             content_type = nettyRequest.getContentType();
 
-            if(formData.equals(content_type) || multipart.equals(content_type)){
+            if( multipart.equals(content_type)){
                 try {
                     decoder = new HttpPostRequestDecoder(factory, request);
                 } catch (HttpPostRequestDecoder.ErrorDataDecoderException e1) {
                     e1.printStackTrace();
                     ctx.channel().close();
                     return;
+                }
+            }else{
+                int content_length = ((HttpRequest) msg).headers().getInt(HttpHeaderNames.CONTENT_LENGTH);
+                if(content_length>max_in_memory_content){
+                    httpData = new DiskAttribute("postData");
+                }else{
+                    httpData = new MemoryAttribute("postData");
                 }
             }
         }
@@ -95,7 +104,15 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
 
             }else{
                 //保存post的数据到内存或者文件
-                fileHttpData((HttpContent) msg);
+                boolean isLast = msg instanceof LastHttpContent;
+                fileHttpData((HttpContent) msg,isLast);
+
+                if (isLast) {
+                    nettyRequest.setPostDatas(postDatas);
+                    nettyRequest.setHttpData(httpData);
+                    container.onRequest(nettyRequest,nettyResponse);
+                    nettyResponse.flushBuffer();
+                }
             }
         }
 
@@ -109,8 +126,11 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
             }
         }
     }
-    public void fileHttpData(HttpContent content){
-
+    public void fileHttpData(HttpContent content,boolean last){
+        try {
+            httpData.addContent(content.content(),last);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
-
 }
