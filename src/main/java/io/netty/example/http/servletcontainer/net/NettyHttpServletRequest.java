@@ -1,19 +1,19 @@
 package io.netty.example.http.servletcontainer.net;
 
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.example.http.servletcontainer.handler.HttpRequestHandler;
 import io.netty.example.http.servletcontainer.util.GenTools;
 import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.cookie.ServerCookieDecoder;
 import io.netty.handler.codec.http.multipart.Attribute;
+import io.netty.handler.codec.http.multipart.FileUpload;
 import io.netty.handler.codec.http.multipart.HttpData;
 import io.netty.handler.codec.http.multipart.InterfaceHttpData;
 
 import javax.servlet.*;
 import javax.servlet.http.*;
 import javax.servlet.http.Cookie;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
+import java.io.*;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.charset.Charset;
@@ -46,15 +46,23 @@ public class NettyHttpServletRequest implements HttpServletRequest {
     private boolean parsePararms = false;
 
     /**
+     * 是否已经获取流
+     */
+    private boolean getInputStream = false;
+
+    /**
      * 保存 post 上来的所有数据
      * @param ctx
      * @param msg
      */
     private List<InterfaceHttpData> parts;
 
-    private Map<String,Part> partMap;
+    private Map<String,Part> partMap = null;
 
-    private HttpData httpData;
+    /**
+     * 保存除文件上传外的其他数据
+     */
+    private FileUpload  httpData;
 
     public NettyHttpServletRequest(ChannelHandlerContext ctx,HttpRequest msg){
         this.ctx = ctx;
@@ -66,24 +74,34 @@ public class NettyHttpServletRequest implements HttpServletRequest {
     /**
      * 解析queryString
      */
-    public void parseQueryString(){
+    public void parseQueryString()  {
+
+        if(parsePararms){
+            return;
+        }
+
         QueryStringDecoder decoder = new QueryStringDecoder(msg.uri(),Charset.forName(getCharacterEncoding()));
         paramsMap = decoder.parameters();
 
-        if("application/x-www-form-urlencoded".equalsIgnoreCase(getContentType())){
+        if("application/x-www-form-urlencoded".equalsIgnoreCase(getContentType()) && getInputStream == false){
             //解析post的数据到paramsMap
             if(httpData!=null){
-                String data = httpData.content().toString();
-                QueryStringDecoder decoder1 = new QueryStringDecoder(data,Charset.forName(getCharacterEncoding()));
-                Map<String,List<String>> paramsMap1 = decoder1.parameters();
-                if(paramsMap1!=null){
-                    for(Map.Entry<String,List<String>> kv: paramsMap1.entrySet()){
-                        List<String> list = paramsMap.get(kv.getKey());
-                        if(list==null){
-                            list = kv.getValue();
+                String data = null;
+                try {
+                    data = new String(httpData.get());
+                    QueryStringDecoder decoder1 = new QueryStringDecoder(data,Charset.forName(getCharacterEncoding()));
+                    Map<String,List<String>> paramsMap1 = decoder1.parameters();
+                    if(paramsMap1!=null){
+                        for(Map.Entry<String,List<String>> kv: paramsMap1.entrySet()){
+                            List<String> list = paramsMap.get(kv.getKey());
+                            if(list==null){
+                                list = kv.getValue();
+                            }
+                            list.addAll(kv.getValue());
                         }
-                        list.addAll(kv.getValue());
                     }
+                } catch (IOException e) {
+                    e.printStackTrace();
                 }
             }
         }
@@ -101,7 +119,8 @@ public class NettyHttpServletRequest implements HttpServletRequest {
         this.parts = postDatas;
     }
 
-    public void setHttpData(HttpData httpData) {
+
+    public void setHttpData(FileUpload httpData) {
         this.httpData = httpData;
     }
 
@@ -113,7 +132,6 @@ public class NettyHttpServletRequest implements HttpServletRequest {
     public String getAuthType() {
         return null;
     }
-
 
     /**
      * 返回cookie
@@ -327,17 +345,33 @@ public class NettyHttpServletRequest implements HttpServletRequest {
     @Override
     public Collection<Part> getParts() throws IOException, ServletException {
 
-        List<Part> allParts = new ArrayList<Part>(parts.size());
-        for(InterfaceHttpData data:parts){
-            allParts.add(new NettyPart(data));
+        if(parts!=null) {
+            if(partMap==null) {
+                initPartMap();
+            }
+            return partMap.values();
+        }else {
+            return null;
         }
+    }
 
-        return allParts;
+    private void initPartMap(){
+        partMap = new HashMap<String, Part>((int) (parts.size() / 0.75));
+        for (InterfaceHttpData data : parts) {
+            partMap.put(data.getName(), new NettyPart(data.retain()));
+        }
     }
 
     @Override
     public Part getPart(String s) throws IOException, ServletException {
-        return null;
+        if(parts!=null) {
+            if(partMap==null) {
+                initPartMap();
+            }
+            return partMap.get(s);
+        }else {
+            return null;
+        }
     }
 
     //先不实现
@@ -408,7 +442,34 @@ public class NettyHttpServletRequest implements HttpServletRequest {
 
     @Override
     public ServletInputStream getInputStream() throws IOException {
-        return null;
+
+        if(getInputStream){
+            throw new IllegalStateException("已经获取流，无法获取流");
+        }
+
+        if(parsePararms){
+            throw new IllegalStateException("已经解析参数，无法获取流");
+        }
+
+
+        String method = getMethod();
+        if(!method.equalsIgnoreCase("POST") && method.equalsIgnoreCase("PUT")){
+            throw new UnsupportedEncodingException("无法获取输入流");
+        }
+
+        if(getContentType().equalsIgnoreCase(HttpRequestHandler.multipart)){
+            throw new IllegalStateException("请使用getParts 获取上传的文件");
+        }
+
+
+        if(httpData.isInMemory()){
+            getInputStream = true;
+            return  new ByteArrayServletInputStream(httpData.get());
+        }else{
+            //in disk
+            getInputStream = true;
+            return new FileServletInputStream(httpData.getFile());
+        }
     }
 
     @Override
@@ -654,5 +715,20 @@ public class NettyHttpServletRequest implements HttpServletRequest {
         return null;
     }
 
+    /**
+     * 清理性工作
+     */
+    public void clearRequestData(){
+
+        if(parts!=null)
+            for(InterfaceHttpData data:parts){
+                while(data.release());
+            }
+
+        if(httpData!=null){
+            while(httpData.release());
+        }
+
+    }
 
 }

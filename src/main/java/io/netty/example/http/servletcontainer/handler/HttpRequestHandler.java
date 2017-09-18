@@ -27,11 +27,11 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
     /**
      * 保存除文件上传和表单之外的其他数据
      */
-    private HttpData httpData;
+    private FileUpload httpData;
 
     String content_type ;
 
-    private final String multipart="multipart/form-data";
+    public static final String multipart="multipart/form-data";
 
     private final int max_in_memory_content = 1024*1024;
 
@@ -72,13 +72,16 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
                 }
             }else{
                 int content_length = ((HttpRequest) msg).headers().getInt(HttpHeaderNames.CONTENT_LENGTH);
-                if(content_length>max_in_memory_content){
-                    httpData = new DiskAttribute("postData");
+                if( content_length > max_in_memory_content ){
+                    httpData = new MemoryFileUpload("body","body",content_type,null,null,content_length);
                 }else{
-                    httpData = new MemoryAttribute("postData");
+                    httpData = new DiskFileUpload("body","body",content_type,null,null,content_length);
                 }
             }
         }
+
+        //是否支持异步
+        boolean isAsync = false;
 
         if(msg instanceof HttpContent){
             if(decoder!=null){
@@ -91,17 +94,15 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
                     ctx.channel().close();
                     return;
                 }
-
-                // example of reading chunk by chunk (minimize memory usage due to
-                // Factory)
                 readHttpData();
-                // example of reading only if at the end
                 if (chunk instanceof LastHttpContent) {
                     nettyRequest.setPostDatas(postDatas);
                     container.onRequest(nettyRequest,nettyResponse);
-                    nettyResponse.flushBuffer();
+                    if(!isAsync){
+                        nettyResponse.flushBuffer();
+                        nettyRequest.clearRequestData();
+                    }
                 }
-
             }else{
                 //保存post的数据到内存或者文件
                 boolean isLast = msg instanceof LastHttpContent;
@@ -109,13 +110,15 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
 
                 if (isLast) {
                     nettyRequest.setPostDatas(postDatas);
-                    nettyRequest.setHttpData(httpData);
+                    nettyRequest.setHttpData(httpData.retain());
                     container.onRequest(nettyRequest,nettyResponse);
-                    nettyResponse.flushBuffer();
+                    if(!isAsync){
+                        nettyResponse.flushBuffer();
+                        nettyRequest.clearRequestData();
+                    }
                 }
             }
         }
-
     }
 
     public void readHttpData(){
@@ -128,7 +131,7 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
     }
     public void fileHttpData(HttpContent content,boolean last){
         try {
-            httpData.addContent(content.content(),last);
+            httpData.addContent(content.content().retain(),last);
         } catch (IOException e) {
             e.printStackTrace();
         }

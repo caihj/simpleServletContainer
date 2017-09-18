@@ -36,9 +36,8 @@ public class SimpleContainer {
         context = new DefaultServletContext();
     }
 
-    public void onRequest(HttpServletRequest request, HttpServletResponse response){
+    private HttpServlet getServlet(HttpServletRequest request, HttpServletResponse response,String url){
 
-        String url = request.getRequestURI();
         HttpServlet servlet = servletContainer.resolveServlet(context,url);
         if(servlet==null){
             logger.info("container 没有找到servlet  实例");
@@ -48,8 +47,7 @@ public class SimpleContainer {
         if(info==null){
             //返回404
             logger.info("没有找到serlvetinfo");
-            sendNotFound(request,response);
-            return;
+            return null;
         }
 
         final DefaultServletConfig config = new DefaultServletConfig();
@@ -59,12 +57,19 @@ public class SimpleContainer {
 
         servlet = factory.loadServlet(info,config);
         if(servlet==null){
-            sendNotFound(request,response);
-            return;
+            return null;
         }
-
         servletContainer.addServlet(info.getUrlPattern(),info.getName(),servlet);
+        return servlet;
+    }
 
+    public void onRequest(HttpServletRequest request, HttpServletResponse response){
+
+        String url = request.getRequestURI();
+
+        HttpServlet servlet = getServlet(request,response,url);
+
+        ServletInfo info = servletMapping.getServletInfo(context,url);
         //解析pathinfo
         final String pathInfo = parsePathInfo(info,url,context);
 
@@ -85,7 +90,7 @@ public class SimpleContainer {
             servlet.service(request1,response);
         } catch (ServletException e) {
             e.printStackTrace();
-        } catch (IOException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
@@ -116,7 +121,12 @@ public class SimpleContainer {
         info.setName("helloServlet");
         info.setUrlPattern("/hello");
 
-        //注册一个servlet
+        servletMapping.addMapping(info);
+
+        info.setClassName("io.netty.example.http.servletcontainer.servlet.ServletGetInputStream");
+        info.setName("post");
+        info.setUrlPattern("/post");
+
         servletMapping.addMapping(info);
 
     }
