@@ -151,8 +151,6 @@ public class NettyHttpServletResponse implements HttpServletResponse {
     @Override
     public ServletOutputStream getOutputStream() throws IOException {
 
-        ctx.write(response);
-
         ServletOutputStream outputStream = new ServletOutputStream() {
             @Override
             public boolean isReady() {
@@ -166,7 +164,6 @@ public class NettyHttpServletResponse implements HttpServletResponse {
 
             @Override
             public void write(int b) throws IOException {
-                ByteBuf buf = ctx.alloc().buffer(4);
                 buf.writeByte(b);
             }
 
@@ -198,12 +195,13 @@ public class NettyHttpServletResponse implements HttpServletResponse {
 
             @Override
             public void flush() throws IOException {
-
+                ctx.flush();
             }
 
             @Override
             public void close() throws IOException {
-
+                ctx.flush();
+                ctx.close();
             }
 
         };

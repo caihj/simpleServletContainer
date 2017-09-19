@@ -65,9 +65,18 @@ public class SimpleContainer {
 
     public void onRequest(HttpServletRequest request, HttpServletResponse response){
 
-        String url = request.getRequestURI();
+        String uri = request.getRequestURI();
+        String url = uri;
+        int pos = uri.indexOf("?");
+        if(pos>0){
+            url = uri.substring(0,pos);
+        }
 
         HttpServlet servlet = getServlet(request,response,url);
+        if(servlet==null){
+            sendNotFound(request,response);
+            return;
+        }
 
         ServletInfo info = servletMapping.getServletInfo(context,url);
         //解析pathinfo
@@ -123,9 +132,27 @@ public class SimpleContainer {
 
         servletMapping.addMapping(info);
 
+        info = new ServletInfo();
         info.setClassName("io.netty.example.http.servletcontainer.servlet.ServletGetInputStream");
         info.setName("post");
         info.setUrlPattern("/post");
+
+        servletMapping.addMapping(info);
+
+        info = new ServletInfo();
+        info.setClassName("io.netty.example.http.servletcontainer.servlet.ServletGetParams");
+        info.setName("getParams");
+        info.setUrlPattern("/getParams");
+
+        info = new ServletInfo();
+        info.setClassName("io.netty.example.http.servletcontainer.servlet.UploadFile");
+        info.setName("upload");
+        info.setUrlPattern("/upload");
+
+        info = new ServletInfo();
+        info.setClassName("io.netty.example.http.servletcontainer.servlet.ServletOutPutStream");
+        info.setName("output");
+        info.setUrlPattern("/output");
 
         servletMapping.addMapping(info);
 

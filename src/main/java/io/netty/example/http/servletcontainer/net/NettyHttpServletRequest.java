@@ -36,7 +36,7 @@ public class NettyHttpServletRequest implements HttpServletRequest {
 
     private String characterEncoding ;
 
-    private Map<String, List<String>> paramsMap;
+    private Map<String, String [] > paramsMap = new HashMap<String, String[]>();
 
     private ServletContext servletContext;
 
@@ -68,6 +68,15 @@ public class NettyHttpServletRequest implements HttpServletRequest {
         this.ctx = ctx;
         this.msg = msg;
         //解析queryString
+        characterEncoding = "ISO-8859-1";
+        String contentType = getContentType();
+        if(contentType!=null){
+            int pos = contentType.indexOf("charset");
+
+            if(pos>0 && contentType.length()>pos+8){
+                characterEncoding = contentType.substring(pos+8);
+            }
+        }
 
     }
 
@@ -80,24 +89,27 @@ public class NettyHttpServletRequest implements HttpServletRequest {
             return;
         }
 
+        Map<String,List<String>> param = new HashMap<String, List<String>>(20);
         QueryStringDecoder decoder = new QueryStringDecoder(msg.uri(),Charset.forName(getCharacterEncoding()));
-        paramsMap = decoder.parameters();
+        param = decoder.parameters();
 
-        if("application/x-www-form-urlencoded".equalsIgnoreCase(getContentType()) && getInputStream == false){
+        if("application/x-www-form-urlencoded".equalsIgnoreCase(getPlainContentType()) && getInputStream == false){
             //解析post的数据到paramsMap
             if(httpData!=null){
                 String data = null;
                 try {
                     data = new String(httpData.get());
-                    QueryStringDecoder decoder1 = new QueryStringDecoder(data,Charset.forName(getCharacterEncoding()));
+                    QueryStringDecoder decoder1 = new QueryStringDecoder(data,Charset.forName(getCharacterEncoding()),false);
                     Map<String,List<String>> paramsMap1 = decoder1.parameters();
                     if(paramsMap1!=null){
                         for(Map.Entry<String,List<String>> kv: paramsMap1.entrySet()){
-                            List<String> list = paramsMap.get(kv.getKey());
+                            List<String> list = param.get(kv.getKey());
                             if(list==null){
-                                list = kv.getValue();
+                                param.put(kv.getKey(),kv.getValue());
+                            }else{
+                                list.addAll(kv.getValue());
                             }
-                            list.addAll(kv.getValue());
+
                         }
                     }
                 } catch (IOException e) {
@@ -107,6 +119,10 @@ public class NettyHttpServletRequest implements HttpServletRequest {
         }
 
         parsePararms = true;
+
+        for(Map.Entry<String,List<String>> kv:param.entrySet()){
+            paramsMap.put(kv.getKey(),kv.getValue().toArray(new String[0]));
+        }
 
     }
 
@@ -358,7 +374,7 @@ public class NettyHttpServletRequest implements HttpServletRequest {
     private void initPartMap(){
         partMap = new HashMap<String, Part>((int) (parts.size() / 0.75));
         for (InterfaceHttpData data : parts) {
-            partMap.put(data.getName(), new NettyPart(data.retain()));
+            partMap.put(data.getName(), new NettyPart(data));
         }
     }
 
@@ -435,9 +451,26 @@ public class NettyHttpServletRequest implements HttpServletRequest {
         }
     }
 
+    /**
+     *
+     * @return  application/x-www-form-urlencoded;charset=utf-8
+     */
     @Override
     public String getContentType() {
         return msg.headers().get(HttpHeaderNames.CONTENT_TYPE);
+    }
+
+    public String getPlainContentType(){
+        String contentType = getContentType();
+        if(contentType==null){
+            return null;
+        }
+
+        int pos = contentType.indexOf(";");
+        if(pos>=0){
+            return  contentType.substring(0,pos);
+        }
+        return contentType;
     }
 
     @Override
@@ -457,7 +490,7 @@ public class NettyHttpServletRequest implements HttpServletRequest {
             throw new UnsupportedEncodingException("无法获取输入流");
         }
 
-        if(getContentType().equalsIgnoreCase(HttpRequestHandler.multipart)){
+        if(getPlainContentType().equalsIgnoreCase(HttpRequestHandler.multipart)){
             throw new IllegalStateException("请使用getParts 获取上传的文件");
         }
 
@@ -477,9 +510,9 @@ public class NettyHttpServletRequest implements HttpServletRequest {
         if(!parsePararms){
             parseQueryString();
         }
-        List<String> list =  paramsMap.get(name);
-        if(list!=null && list.size()>0){
-            return list.get(0);
+        String[] list =  paramsMap.get(name);
+        if(list!=null && list.length>0){
+            return list[0];
         }else {
             return null;
         }
@@ -492,7 +525,7 @@ public class NettyHttpServletRequest implements HttpServletRequest {
             parseQueryString();
         }
 
-        final Iterator<Map.Entry<String, List<String>>> iterable = paramsMap.entrySet().iterator();
+        final Iterator<Map.Entry<String, String[]>> iterable = paramsMap.entrySet().iterator();
         return new Enumeration() {
             @Override
             public boolean hasMoreElements() {
@@ -510,8 +543,8 @@ public class NettyHttpServletRequest implements HttpServletRequest {
         if(!parsePararms){
             parseQueryString();
         }
-        List<String> list =  paramsMap.get(name);
-        return list.toArray(null);
+        String[] list =  paramsMap.get(name);
+        return list;
     }
 
     @Override

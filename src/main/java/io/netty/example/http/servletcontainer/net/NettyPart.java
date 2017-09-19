@@ -1,14 +1,12 @@
 package io.netty.example.http.servletcontainer.net;
 
+import io.netty.handler.codec.http.multipart.Attribute;
 import io.netty.handler.codec.http.multipart.FileUpload;
 import io.netty.handler.codec.http.multipart.HttpData;
 import io.netty.handler.codec.http.multipart.InterfaceHttpData;
 
 import javax.servlet.http.Part;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.util.Collection;
 
 public class NettyPart  implements Part {
@@ -26,7 +24,8 @@ public class NettyPart  implements Part {
             FileUpload upload = (FileUpload) data;
             return new FileInputStream(upload.getFile());
         }else if(type.equals(InterfaceHttpData.HttpDataType.Attribute)){
-            return null;
+            Attribute attribute = (Attribute) data;
+            return new ByteArrayInputStream(attribute.get());
         }else {
             return null;
         }
@@ -39,7 +38,7 @@ public class NettyPart  implements Part {
             FileUpload upload = (FileUpload) data;
             return upload.getContentType();
         }else if(type.equals(InterfaceHttpData.HttpDataType.Attribute)){
-
+            Attribute attribute = (Attribute) data;
             return null;
         }else{
             return null;
@@ -72,14 +71,17 @@ public class NettyPart  implements Part {
         if(type.equals(InterfaceHttpData.HttpDataType.FileUpload)){
             FileUpload upload = (FileUpload) data;
             try {
-                return upload.getFile().length();
+                if(upload.isInMemory())
+                    return upload.get().length;
+                else
+                    return upload.getFile().length();
             } catch (IOException e) {
                 e.printStackTrace();
             }
             return -1;
         }else if(type.equals(InterfaceHttpData.HttpDataType.Attribute)){
-
-            return -1;
+            Attribute attribute = (Attribute) data;
+            return attribute.length();
         }else{
             return -1;
         }
