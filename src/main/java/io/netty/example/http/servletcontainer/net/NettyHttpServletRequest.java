@@ -156,15 +156,18 @@ public class NettyHttpServletRequest implements HttpServletRequest {
     @Override
     public Cookie[] getCookies() {
 
-        Cookie [] cookies = null;
+        Cookie [] cookies = new Cookie[0];
 
-        Set<io.netty.handler.codec.http.cookie.Cookie> cookies1 = ServerCookieDecoder.STRICT.decode(msg.headers().get(HttpHeaderNames.COOKIE));
-        if(cookies1!=null && cookies1.size()>0){
-            cookies = new Cookie[cookies1.size()];
-            int i=0;
-            for(io.netty.handler.codec.http.cookie.Cookie cookie:cookies1){
-                Cookie c = new Cookie(cookie.name(),cookie.value());
-                cookies[i++]=c;
+        String cookieStr = msg.headers().get(HttpHeaderNames.COOKIE);
+        if(cookieStr!=null) {
+            Set<io.netty.handler.codec.http.cookie.Cookie> cookies1 = ServerCookieDecoder.STRICT.decode(cookieStr);
+            if (cookies1 != null && cookies1.size() > 0) {
+                cookies = new Cookie[cookies1.size()];
+                int i = 0;
+                for (io.netty.handler.codec.http.cookie.Cookie cookie : cookies1) {
+                    Cookie c = new Cookie(cookie.name(), cookie.value());
+                    cookies[i++] = c;
+                }
             }
         }
 
@@ -182,12 +185,11 @@ public class NettyHttpServletRequest implements HttpServletRequest {
     }
 
     @Override
-    public Enumeration getHeaders(String name) {
+    public Enumeration<String> getHeaders(String name) {
         List<String> value = msg.headers().getAll(name);
         if(value!=null) {
             return GenTools.iteratorToEnumeration(value.iterator());
         }
-
         return null;
     }
 
@@ -755,11 +757,11 @@ public class NettyHttpServletRequest implements HttpServletRequest {
 
         if(parts!=null)
             for(InterfaceHttpData data:parts){
-                while(data.release());
+               data.release();
             }
-
+        System.out.println("clear httpData refcount "+httpData.refCnt());
         if(httpData!=null){
-            while(httpData.release());
+           httpData.release();
         }
 
     }

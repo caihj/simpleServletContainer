@@ -115,7 +115,9 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
                     nettyRequest.setPostDatas(postDatas);
                     postDatas = new ArrayList<InterfaceHttpData>();
 
+
                     nettyRequest.setHttpData(httpData);
+                    System.out.println("set httpData refcount "+httpData.refCnt());
                     httpData = null;
                     container.onRequest(nettyRequest,nettyResponse);
                     if(!isAsync){
@@ -143,13 +145,13 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
 
             InterfaceHttpData data = decoder.next();
             if (data != null) {
-                postDatas.add(data.retain());
+                postDatas.add(data);
             }
         }
     }
     public void fileHttpData(HttpContent content,boolean last){
         try {
-            httpData.addContent(content.content().retain(),last);
+            httpData.addContent(content.content(),last);
         } catch (IOException e) {
             e.printStackTrace();
         }

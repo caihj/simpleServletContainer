@@ -1,16 +1,15 @@
 package io.netty.example.http.servletcontainer.container;
 
 
+import io.netty.example.http.servletcontainer.net.NettyHttpServletRequest;
+import io.netty.example.http.servletcontainer.net.NettyHttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletRequestWrapper;
-import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.*;
 import java.io.IOException;
 
 /**
@@ -36,7 +35,7 @@ public class SimpleContainer {
         context = new DefaultServletContext();
     }
 
-    private HttpServlet getServlet(HttpServletRequest request, HttpServletResponse response,String url){
+    private HttpServlet getServlet(NettyHttpServletRequest request, NettyHttpServletResponse response, String url){
 
         HttpServlet servlet = servletContainer.resolveServlet(context,url);
         if(servlet==null){
@@ -59,11 +58,12 @@ public class SimpleContainer {
         if(servlet==null){
             return null;
         }
+
         servletContainer.addServlet(info.getUrlPattern(),info.getName(),servlet);
         return servlet;
     }
 
-    public void onRequest(HttpServletRequest request, HttpServletResponse response){
+    public void onRequest(NettyHttpServletRequest request, NettyHttpServletResponse response){
 
         String uri = request.getRequestURI();
         String url = uri;
@@ -82,6 +82,8 @@ public class SimpleContainer {
         //解析pathinfo
         final String pathInfo = parsePathInfo(info,url,context);
 
+        response.setServletContext(context);
+
         HttpServletRequest request1 = new HttpServletRequestWrapper(request){
             @Override
             public String getPathInfo() {
@@ -93,6 +95,10 @@ public class SimpleContainer {
                 return context.getContextPath();
             }
 
+            @Override
+            public ServletContext getServletContext() {
+                return context;
+            }
         };
 
         try {
@@ -143,6 +149,7 @@ public class SimpleContainer {
         info.setClassName("io.netty.example.http.servletcontainer.servlet.ServletGetParams");
         info.setName("getParams");
         info.setUrlPattern("/getParams");
+        servletMapping.addMapping(info);
 
         info = new ServletInfo();
         info.setClassName("io.netty.example.http.servletcontainer.servlet.UploadFile");
@@ -153,6 +160,21 @@ public class SimpleContainer {
         info.setClassName("io.netty.example.http.servletcontainer.servlet.ServletOutPutStream");
         info.setName("output");
         info.setUrlPattern("/output");
+
+        servletMapping.addMapping(info);
+
+        info = new ServletInfo();
+        info.setClassName("io.netty.example.http.servletcontainer.servlet.DownloadFile");
+        info.setName("output");
+        info.setUrlPattern("/download");
+
+        servletMapping.addMapping(info);
+
+
+        info = new ServletInfo();
+        info.setClassName("io.netty.example.http.servletcontainer.servlet.CookieServlet");
+        info.setName("output");
+        info.setUrlPattern("/cookie");
 
         servletMapping.addMapping(info);
 

@@ -3,8 +3,14 @@ package io.netty.example.http.servletcontainer.net;
 import com.sun.xml.internal.fastinfoset.util.CharArray;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.example.http.servletcontainer.util.GenTools;
+import io.netty.handler.codec.CharSequenceValueConverter;
 import io.netty.handler.codec.http.*;
+import io.netty.handler.codec.http.cookie.DefaultCookie;
+import io.netty.handler.codec.http.cookie.ServerCookieDecoder;
+import io.netty.handler.codec.http.cookie.ServerCookieEncoder;
 
+import javax.servlet.ServletContext;
 import javax.servlet.ServletOutputStream;
 import javax.servlet.WriteListener;
 import javax.servlet.http.Cookie;
@@ -13,7 +19,9 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Writer;
 import java.nio.charset.Charset;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Locale;
 
 public class NettyHttpServletResponse implements HttpServletResponse {
@@ -26,6 +34,16 @@ public class NettyHttpServletResponse implements HttpServletResponse {
 
     private ByteBuf buf;
 
+    private boolean isCommit = false;
+
+    private ServletContext servletContext;
+
+    private List<Cookie> cookies = new ArrayList<Cookie>();
+
+    public void setServletContext(ServletContext servletContext) {
+        this.servletContext = servletContext;
+    }
+
     public NettyHttpServletResponse(ChannelHandlerContext ctx){
         this.ctx = ctx;
         response = new DefaultFullHttpResponse(
@@ -35,7 +53,7 @@ public class NettyHttpServletResponse implements HttpServletResponse {
 
     @Override
     public void addCookie(Cookie cookie) {
-
+        cookies.add(cookie);
     }
 
     @Override
@@ -45,47 +63,83 @@ public class NettyHttpServletResponse implements HttpServletResponse {
 
     @Override
     public String encodeURL(String url) {
-        return null;
+        return url;
     }
 
     @Override
     public String encodeRedirectURL(String url) {
-        return null;
+        return url;
     }
 
     @Override
     public String encodeUrl(String url) {
-        return null;
+        return encodeURL(url);
     }
 
     @Override
     public String encodeRedirectUrl(String url) {
-        return null;
+        return encodeRedirectURL(url);
     }
 
+    /**
+     * not support msg
+     * @param sc
+     * @param msg
+     * @throws IOException
+     */
     @Override
     public void sendError(int sc, String msg) throws IOException {
+        if(isCommit)
+            throw new IllegalStateException("已提交");
 
+        response.setStatus(HttpResponseStatus.valueOf(sc));
+        buf.clear();
+        flushBuffer();
     }
 
     @Override
     public void sendError(int sc) throws IOException {
+        if(isCommit)
+            throw new IllegalStateException("已提交");
 
+        response.setStatus(HttpResponseStatus.valueOf(sc));
+        buf.clear();
+        flushBuffer();
     }
 
     @Override
     public void sendRedirect(String location) throws IOException {
 
+        if(isCommit)
+            throw new IllegalStateException("已提交");
+
+        response.setStatus(HttpResponseStatus.FOUND);
+        response.headers().add(HttpHeaderNames.LOCATION,encodeRedirectURL(getRedirectUrl(location)));
+        buf.clear();
+        flushBuffer();
+    }
+
+    private  String getRedirectUrl(String location){
+
+        if(location.startsWith("//")){
+            return "http:"+location;
+        }else if(location.startsWith("/")){
+            return location;
+        }else{
+            return servletContext.getContextPath()+"/"+location;
+        }
     }
 
     @Override
     public void setDateHeader(String name, long date) {
-
+        CharSequenceValueConverter charSequenceValueConverter = new CharSequenceValueConverter();
+        response.headers().set(name,charSequenceValueConverter.convertTimeMillis(date));
     }
 
     @Override
     public void addDateHeader(String name, long date) {
-
+        CharSequenceValueConverter charSequenceValueConverter = new CharSequenceValueConverter();
+        response.headers().add(name,charSequenceValueConverter.convertTimeMillis(date));
     }
 
     @Override
@@ -120,22 +174,26 @@ public class NettyHttpServletResponse implements HttpServletResponse {
 
     @Override
     public int getStatus() {
-        return 0;
+        return response.status().code();
     }
 
     @Override
     public String getHeader(String s) {
-        return null;
+        return response.headers().get(s);
     }
 
     @Override
     public Collection<String> getHeaders(String s) {
+        List<String> value = response.headers().getAll(s);
+        if(value!=null) {
+            return value;
+        }
         return null;
     }
 
     @Override
     public Collection<String> getHeaderNames() {
-        return null;
+        return response.headers().names();
     }
 
     @Override
@@ -164,7 +222,13 @@ public class NettyHttpServletResponse implements HttpServletResponse {
 
             @Override
             public void write(int b) throws IOException {
-                buf.writeByte(b);
+                if(buf.capacity()-buf.writerIndex() >= 1) {
+                    buf.writeByte(b);
+                }else{
+                    flushBuffer();
+                    buf.ensureWritable(1);
+                    buf.writeByte(b);
+                }
             }
 
             @Override
@@ -186,11 +250,16 @@ public class NettyHttpServletResponse implements HttpServletResponse {
     @Override
     public PrintWriter getWriter() throws IOException {
 
-
         Writer writer = new Writer() {
             @Override
             public void write(char[] cbuf, int off, int len) throws IOException {
-                buf.writeCharSequence(new CharArray(cbuf,off,len,false), Charset.forName(charset));
+                if(buf.capacity()-buf.writerIndex() >= len) {
+                    buf.writeCharSequence(new CharArray(cbuf, off, len, false), Charset.forName(charset));
+                }else{
+                    flushBuffer();
+                    buf.ensureWritable(len);
+                    buf.writeCharSequence(new CharArray(cbuf,off,len,false), Charset.forName(charset));
+                }
             }
 
             @Override
@@ -222,7 +291,7 @@ public class NettyHttpServletResponse implements HttpServletResponse {
 
     @Override
     public void setContentLengthLong(long l) {
-
+        response.headers().set(HttpHeaderNames.CONTENT_LENGTH, l);
     }
 
     @Override
@@ -232,34 +301,76 @@ public class NettyHttpServletResponse implements HttpServletResponse {
 
     @Override
     public void setBufferSize(int size) {
-
+        if(isCommit)
+            throw  new IllegalStateException("缓存已提交");
+        buf.capacity(size);
     }
 
     @Override
     public int getBufferSize() {
-        return 0;
+        return buf.capacity();
     }
 
     @Override
     public void flushBuffer() throws IOException {
-        setContentLength(buf.readableBytes());
-        response = response.replace(buf);
-        ctx.write(response);
-        ctx.flush();
+        if(isCommit){
+            ctx.write(buf);
+            ctx.flush();
+        }else{
+            response = response.replace(buf);
+
+            //content-length和chunk都没有，则设置缓存区的长度为 content-length
+            if(response.headers().get(HttpHeaderNames.CONTENT_LENGTH)==null && response.headers().get("Transfer-Encoding")==null) {
+                //没有设置content-length ,设置第一个缓冲区的长度
+                response.headers().set(HttpHeaderNames.CONTENT_LENGTH, buf.writerIndex());
+            }
+
+            if(cookies.size()>0){
+
+                List<io.netty.handler.codec.http.cookie.Cookie> nettyCookies = new ArrayList<io.netty.handler.codec.http.cookie.Cookie>(cookies.size());
+                for(Cookie cookie:cookies){
+                    io.netty.handler.codec.http.cookie.Cookie cookie1 = new DefaultCookie (cookie.getName(),cookie.getValue());
+                    cookie1.setDomain(cookie.getDomain());
+                    cookie1.setHttpOnly(cookie.isHttpOnly());
+                    cookie1.setMaxAge(cookie.getMaxAge());
+                    cookie1.setPath(cookie.getPath());
+                    cookie1.setSecure(cookie.getSecure());
+                    nettyCookies.add(cookie1);
+                }
+                List<String> cookieStr = ServerCookieEncoder.STRICT.encode(nettyCookies);
+                for(String str:cookieStr){
+                    response.headers().add(HttpHeaderNames.SET_COOKIE,str);
+                }
+            }
+            ctx.write(response);
+            ctx.flush();
+            isCommit = true;
+        }
     }
 
     @Override
     public void resetBuffer() {
-
+        if(isCommit){
+           throw new IllegalStateException("已提交");
+        }else{
+            buf.clear();
+        }
     }
 
     @Override
     public boolean isCommitted() {
-        return false;
+        return isCommit;
     }
 
     @Override
     public void reset() {
+        if(isCommit){
+            throw new IllegalStateException("已提交");
+        }else{
+            //清空buf和头信息
+            buf.clear();
+            response.headers().clear();
+        }
 
     }
 
