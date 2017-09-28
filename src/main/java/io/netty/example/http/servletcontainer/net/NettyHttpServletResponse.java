@@ -224,7 +224,7 @@ public class NettyHttpServletResponse implements HttpServletResponse {
 
     @Override
     public void setContentLengthLong(long l) {
-
+        response.headers().set(HttpHeaderNames.CONTENT_LENGTH, l+"");
     }
 
     @Override
