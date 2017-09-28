@@ -1,18 +1,19 @@
 package io.netty.example.http.servletcontainer.net;
 
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.example.http.servletcontainer.handler.HttpRequestHandler;
 import io.netty.example.http.servletcontainer.util.GenTools;
 import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.cookie.ServerCookieDecoder;
 import io.netty.handler.codec.http.multipart.Attribute;
+import io.netty.handler.codec.http.multipart.FileUpload;
+import io.netty.handler.codec.http.multipart.HttpData;
 import io.netty.handler.codec.http.multipart.InterfaceHttpData;
 
 import javax.servlet.*;
 import javax.servlet.http.*;
 import javax.servlet.http.Cookie;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
+import java.io.*;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.charset.Charset;
@@ -35,7 +36,7 @@ public class NettyHttpServletRequest implements HttpServletRequest {
 
     private String characterEncoding ;
 
-    private Map<String, List<String>> paramsMap;
+    private Map<String, String [] > paramsMap = new HashMap<String, String[]>();
 
     private ServletContext servletContext;
 
@@ -45,54 +46,83 @@ public class NettyHttpServletRequest implements HttpServletRequest {
     private boolean parsePararms = false;
 
     /**
+     * 是否已经获取流
+     */
+    private boolean getInputStream = false;
+
+    /**
      * 保存 post 上来的所有数据
      * @param ctx
      * @param msg
      */
-    private List<InterfaceHttpData> postDatas;
+    private List<InterfaceHttpData> parts;
 
+    private Map<String,Part> partMap = null;
 
+    /**
+     * 保存除文件上传外的其他数据
+     */
+    private FileUpload  httpData;
 
     public NettyHttpServletRequest(ChannelHandlerContext ctx,HttpRequest msg){
         this.ctx = ctx;
         this.msg = msg;
         //解析queryString
+        characterEncoding = "ISO-8859-1";
+        String contentType = getContentType();
+        if(contentType!=null){
+            int pos = contentType.indexOf("charset");
+
+            if(pos>0 && contentType.length()>pos+8){
+                characterEncoding = contentType.substring(pos+8);
+            }
+        }
 
     }
 
     /**
      * 解析queryString
      */
-    public void parseQueryString(){
+    public void parseQueryString()  {
+
+        if(parsePararms){
+            return;
+        }
+
+        Map<String,List<String>> param = new HashMap<String, List<String>>(20);
         QueryStringDecoder decoder = new QueryStringDecoder(msg.uri(),Charset.forName(getCharacterEncoding()));
-        paramsMap = decoder.parameters();
+        param = decoder.parameters();
 
-        if("application/x-www-form-urlencoded".equalsIgnoreCase(getContentType())){
+        if("application/x-www-form-urlencoded".equalsIgnoreCase(getPlainContentType()) && getInputStream == false){
             //解析post的数据到paramsMap
-            if(postDatas!=null){
-                for(InterfaceHttpData data:postDatas){
-                    if (data.getHttpDataType() == InterfaceHttpData.HttpDataType.Attribute) {
-                        Attribute attribute = (Attribute) data;
-                        String name = attribute.getHttpDataType().name();
-                        String value="";
-                        try {
-                             value = attribute.getValue();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
+            if(httpData!=null){
+                String data = null;
+                try {
+                    data = new String(httpData.get());
+                    QueryStringDecoder decoder1 = new QueryStringDecoder(data,Charset.forName(getCharacterEncoding()),false);
+                    Map<String,List<String>> paramsMap1 = decoder1.parameters();
+                    if(paramsMap1!=null){
+                        for(Map.Entry<String,List<String>> kv: paramsMap1.entrySet()){
+                            List<String> list = param.get(kv.getKey());
+                            if(list==null){
+                                param.put(kv.getKey(),kv.getValue());
+                            }else{
+                                list.addAll(kv.getValue());
+                            }
 
-                        List<String> list = paramsMap.get(name);
-                        if(list==null){
-                            list = new ArrayList<String>();
-                            paramsMap.put(name,list);
                         }
-                        list.add(value);
                     }
+                } catch (IOException e) {
+                    e.printStackTrace();
                 }
             }
         }
 
         parsePararms = true;
+
+        for(Map.Entry<String,List<String>> kv:param.entrySet()){
+            paramsMap.put(kv.getKey(),kv.getValue().toArray(new String[0]));
+        }
 
     }
 
@@ -102,7 +132,12 @@ public class NettyHttpServletRequest implements HttpServletRequest {
      */
 
     public void setPostDatas(List<InterfaceHttpData> postDatas) {
-        this.postDatas = postDatas;
+        this.parts = postDatas;
+    }
+
+
+    public void setHttpData(FileUpload httpData) {
+        this.httpData = httpData;
     }
 
     /**
@@ -114,7 +149,6 @@ public class NettyHttpServletRequest implements HttpServletRequest {
         return null;
     }
 
-
     /**
      * 返回cookie
      * @return
@@ -122,15 +156,18 @@ public class NettyHttpServletRequest implements HttpServletRequest {
     @Override
     public Cookie[] getCookies() {
 
-        Cookie [] cookies = null;
+        Cookie [] cookies = new Cookie[0];
 
-        Set<io.netty.handler.codec.http.cookie.Cookie> cookies1 = ServerCookieDecoder.STRICT.decode(msg.headers().get(HttpHeaderNames.COOKIE));
-        if(cookies1!=null && cookies1.size()>0){
-            cookies = new Cookie[cookies1.size()];
-            int i=0;
-            for(io.netty.handler.codec.http.cookie.Cookie cookie:cookies1){
-                Cookie c = new Cookie(cookie.name(),cookie.value());
-                cookies[i++]=c;
+        String cookieStr = msg.headers().get(HttpHeaderNames.COOKIE);
+        if(cookieStr!=null) {
+            Set<io.netty.handler.codec.http.cookie.Cookie> cookies1 = ServerCookieDecoder.STRICT.decode(cookieStr);
+            if (cookies1 != null && cookies1.size() > 0) {
+                cookies = new Cookie[cookies1.size()];
+                int i = 0;
+                for (io.netty.handler.codec.http.cookie.Cookie cookie : cookies1) {
+                    Cookie c = new Cookie(cookie.name(), cookie.value());
+                    cookies[i++] = c;
+                }
             }
         }
 
@@ -148,12 +185,11 @@ public class NettyHttpServletRequest implements HttpServletRequest {
     }
 
     @Override
-    public Enumeration getHeaders(String name) {
+    public Enumeration<String> getHeaders(String name) {
         List<String> value = msg.headers().getAll(name);
         if(value!=null) {
             return GenTools.iteratorToEnumeration(value.iterator());
         }
-
         return null;
     }
 
@@ -326,12 +362,34 @@ public class NettyHttpServletRequest implements HttpServletRequest {
 
     @Override
     public Collection<Part> getParts() throws IOException, ServletException {
-        return null;
+
+        if(parts!=null) {
+            if(partMap==null) {
+                initPartMap();
+            }
+            return partMap.values();
+        }else {
+            return null;
+        }
+    }
+
+    private void initPartMap(){
+        partMap = new HashMap<String, Part>((int) (parts.size() / 0.75));
+        for (InterfaceHttpData data : parts) {
+            partMap.put(data.getName(), new NettyPart(data));
+        }
     }
 
     @Override
     public Part getPart(String s) throws IOException, ServletException {
-        return null;
+        if(parts!=null) {
+            if(partMap==null) {
+                initPartMap();
+            }
+            return partMap.get(s);
+        }else {
+            return null;
+        }
     }
 
     //先不实现
@@ -395,14 +453,58 @@ public class NettyHttpServletRequest implements HttpServletRequest {
         }
     }
 
+    /**
+     *
+     * @return  application/x-www-form-urlencoded;charset=utf-8
+     */
     @Override
     public String getContentType() {
         return msg.headers().get(HttpHeaderNames.CONTENT_TYPE);
     }
 
+    public String getPlainContentType(){
+        String contentType = getContentType();
+        if(contentType==null){
+            return null;
+        }
+
+        int pos = contentType.indexOf(";");
+        if(pos>=0){
+            return  contentType.substring(0,pos);
+        }
+        return contentType;
+    }
+
     @Override
     public ServletInputStream getInputStream() throws IOException {
-        return null;
+
+        if(getInputStream){
+            throw new IllegalStateException("已经获取流，无法获取流");
+        }
+
+        if(parsePararms){
+            throw new IllegalStateException("已经解析参数，无法获取流");
+        }
+
+
+        String method = getMethod();
+        if(!method.equalsIgnoreCase("POST") && method.equalsIgnoreCase("PUT")){
+            throw new UnsupportedEncodingException("无法获取输入流");
+        }
+
+        if(getPlainContentType().equalsIgnoreCase(HttpRequestHandler.multipart)){
+            throw new IllegalStateException("请使用getParts 获取上传的文件");
+        }
+
+
+        if(httpData.isInMemory()){
+            getInputStream = true;
+            return  new ByteArrayServletInputStream(httpData.get());
+        }else{
+            //in disk
+            getInputStream = true;
+            return new FileServletInputStream(httpData.getFile());
+        }
     }
 
     @Override
@@ -410,9 +512,9 @@ public class NettyHttpServletRequest implements HttpServletRequest {
         if(!parsePararms){
             parseQueryString();
         }
-        List<String> list =  paramsMap.get(name);
-        if(list!=null && list.size()>0){
-            return list.get(0);
+        String[] list =  paramsMap.get(name);
+        if(list!=null && list.length>0){
+            return list[0];
         }else {
             return null;
         }
@@ -425,7 +527,7 @@ public class NettyHttpServletRequest implements HttpServletRequest {
             parseQueryString();
         }
 
-        final Iterator<Map.Entry<String, List<String>>> iterable = paramsMap.entrySet().iterator();
+        final Iterator<Map.Entry<String, String[]>> iterable = paramsMap.entrySet().iterator();
         return new Enumeration() {
             @Override
             public boolean hasMoreElements() {
@@ -443,8 +545,8 @@ public class NettyHttpServletRequest implements HttpServletRequest {
         if(!parsePararms){
             parseQueryString();
         }
-        List<String> list =  paramsMap.get(name);
-        return list.toArray(null);
+        String[] list =  paramsMap.get(name);
+        return list;
     }
 
     @Override
@@ -648,5 +750,20 @@ public class NettyHttpServletRequest implements HttpServletRequest {
         return null;
     }
 
+    /**
+     * 清理性工作
+     */
+    public void clearRequestData(){
+
+        if(parts!=null)
+            for(InterfaceHttpData data:parts){
+               data.release();
+            }
+        System.out.println("clear httpData refcount "+httpData.refCnt());
+        if(httpData!=null){
+           httpData.release();
+        }
+
+    }
 
 }

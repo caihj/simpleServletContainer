@@ -1,16 +1,15 @@
 package io.netty.example.http.servletcontainer.container;
 
 
+import io.netty.example.http.servletcontainer.net.NettyHttpServletRequest;
+import io.netty.example.http.servletcontainer.net.NettyHttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletRequestWrapper;
-import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.*;
 import java.io.IOException;
 
 /**
@@ -36,9 +35,8 @@ public class SimpleContainer {
         context = new DefaultServletContext();
     }
 
-    public void onRequest(HttpServletRequest request, HttpServletResponse response){
+    private HttpServlet getServlet(NettyHttpServletRequest request, NettyHttpServletResponse response, String url){
 
-        String url = request.getRequestURI();
         HttpServlet servlet = servletContainer.resolveServlet(context,url);
         if(servlet==null){
             logger.info("container 没有找到servlet  实例");
@@ -48,8 +46,7 @@ public class SimpleContainer {
         if(info==null){
             //返回404
             logger.info("没有找到serlvetinfo");
-            sendNotFound(request,response);
-            return;
+            return null;
         }
 
         final DefaultServletConfig config = new DefaultServletConfig();
@@ -59,14 +56,33 @@ public class SimpleContainer {
 
         servlet = factory.loadServlet(info,config);
         if(servlet==null){
+            return null;
+        }
+
+        servletContainer.addServlet(info.getUrlPattern(),info.getName(),servlet);
+        return servlet;
+    }
+
+    public void onRequest(NettyHttpServletRequest request, NettyHttpServletResponse response){
+
+        String uri = request.getRequestURI();
+        String url = uri;
+        int pos = uri.indexOf("?");
+        if(pos>0){
+            url = uri.substring(0,pos);
+        }
+
+        HttpServlet servlet = getServlet(request,response,url);
+        if(servlet==null){
             sendNotFound(request,response);
             return;
         }
 
-        servletContainer.addServlet(info.getUrlPattern(),info.getName(),servlet);
-
+        ServletInfo info = servletMapping.getServletInfo(context,url);
         //解析pathinfo
         final String pathInfo = parsePathInfo(info,url,context);
+
+        response.setServletContext(context);
 
         HttpServletRequest request1 = new HttpServletRequestWrapper(request){
             @Override
@@ -79,13 +95,17 @@ public class SimpleContainer {
                 return context.getContextPath();
             }
 
+            @Override
+            public ServletContext getServletContext() {
+                return context;
+            }
         };
 
         try {
             servlet.service(request1,response);
         } catch (ServletException e) {
             e.printStackTrace();
-        } catch (IOException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
@@ -116,7 +136,46 @@ public class SimpleContainer {
         info.setName("helloServlet");
         info.setUrlPattern("/hello");
 
-        //注册一个servlet
+        servletMapping.addMapping(info);
+
+        info = new ServletInfo();
+        info.setClassName("io.netty.example.http.servletcontainer.servlet.ServletGetInputStream");
+        info.setName("post");
+        info.setUrlPattern("/post");
+
+        servletMapping.addMapping(info);
+
+        info = new ServletInfo();
+        info.setClassName("io.netty.example.http.servletcontainer.servlet.ServletGetParams");
+        info.setName("getParams");
+        info.setUrlPattern("/getParams");
+        servletMapping.addMapping(info);
+
+        info = new ServletInfo();
+        info.setClassName("io.netty.example.http.servletcontainer.servlet.UploadFile");
+        info.setName("upload");
+        info.setUrlPattern("/upload");
+
+        info = new ServletInfo();
+        info.setClassName("io.netty.example.http.servletcontainer.servlet.ServletOutPutStream");
+        info.setName("output");
+        info.setUrlPattern("/output");
+
+        servletMapping.addMapping(info);
+
+        info = new ServletInfo();
+        info.setClassName("io.netty.example.http.servletcontainer.servlet.DownloadFile");
+        info.setName("output");
+        info.setUrlPattern("/download");
+
+        servletMapping.addMapping(info);
+
+
+        info = new ServletInfo();
+        info.setClassName("io.netty.example.http.servletcontainer.servlet.CookieServlet");
+        info.setName("output");
+        info.setUrlPattern("/cookie");
+
         servletMapping.addMapping(info);
 
     }

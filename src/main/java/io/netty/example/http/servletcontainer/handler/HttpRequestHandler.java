@@ -9,6 +9,8 @@ import io.netty.example.http.servletcontainer.net.NettyHttpServletResponse;
 import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.multipart.*;
 
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> {
@@ -20,18 +22,16 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
      */
     private HttpPostRequestDecoder decoder;
 
-    private List<InterfaceHttpData> postDatas;
+    private List<InterfaceHttpData> postDatas = new ArrayList<InterfaceHttpData>();
 
     /**
      * 保存除文件上传和表单之外的其他数据
      */
-    private HttpData httpData;
+    private FileUpload httpData;
 
-    String content_type ;
+    public static final String multipart="multipart/form-data";
 
-    private final String formData="application/x-www-form-urlencoded";
-
-    private final String multipart="multipart/form-data";
+    private final int max_in_memory_content = 1024*1024;
 
     private static final HttpDataFactory factory =
             new DefaultHttpDataFactory(DefaultHttpDataFactory.MINSIZE);
@@ -46,6 +46,7 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, HttpObject msg) throws Exception {
 
+        String content_type ;
         if(msg instanceof HttpRequest) {
             HttpRequest request = (HttpRequest) msg;
              nettyRequest = new NettyHttpServletRequest(ctx, (HttpRequest) request);
@@ -58,9 +59,9 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
             }
 
             //post
-            content_type = nettyRequest.getContentType();
+            content_type = nettyRequest.getPlainContentType();
 
-            if(formData.equals(content_type) || multipart.equals(content_type)){
+            if( multipart.equals(content_type)){
                 try {
                     decoder = new HttpPostRequestDecoder(factory, request);
                 } catch (HttpPostRequestDecoder.ErrorDataDecoderException e1) {
@@ -68,8 +69,18 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
                     ctx.channel().close();
                     return;
                 }
+            }else{
+                int content_length = ((HttpRequest) msg).headers().getInt(HttpHeaderNames.CONTENT_LENGTH);
+                if( content_length > max_in_memory_content ){
+                    httpData = new MemoryFileUpload("body","body",content_type,null,null,content_length);
+                }else{
+                    httpData = new DiskFileUpload("body","body",content_type,null,null,content_length);
+                }
             }
         }
+
+        //是否支持异步
+        boolean isAsync = false;
 
         if(msg instanceof HttpContent){
             if(decoder!=null){
@@ -82,35 +93,67 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
                     ctx.channel().close();
                     return;
                 }
-
-                // example of reading chunk by chunk (minimize memory usage due to
-                // Factory)
                 readHttpData();
-                // example of reading only if at the end
                 if (chunk instanceof LastHttpContent) {
                     nettyRequest.setPostDatas(postDatas);
+                    postDatas = new ArrayList<InterfaceHttpData>();
+                    decoder.destroy();
                     container.onRequest(nettyRequest,nettyResponse);
-                    nettyResponse.flushBuffer();
+                    if(!isAsync){
+                        nettyResponse.flushBuffer();
+                        nettyRequest.clearRequestData();
+                        nettyRequest = null;
+                        nettyResponse = null;
+                    }
                 }
-
             }else{
                 //保存post的数据到内存或者文件
-                fileHttpData((HttpContent) msg);
+                boolean isLast = msg instanceof LastHttpContent;
+                fileHttpData((HttpContent) msg,isLast);
+
+                if (isLast) {
+                    nettyRequest.setPostDatas(postDatas);
+                    postDatas = new ArrayList<InterfaceHttpData>();
+
+
+                    nettyRequest.setHttpData(httpData);
+                    System.out.println("set httpData refcount "+httpData.refCnt());
+                    httpData = null;
+                    container.onRequest(nettyRequest,nettyResponse);
+                    if(!isAsync){
+                        nettyResponse.flushBuffer();
+                        nettyRequest.clearRequestData();
+                    }
+                }
             }
         }
-
     }
 
     public void readHttpData(){
-        while (decoder.hasNext()) {
+        while (true) {
+
+            boolean hasNext;
+            try {
+                hasNext = decoder.hasNext();
+            } catch (HttpPostRequestDecoder.EndOfDataDecoderException  e) {
+                System.out.println("end of data");
+                return;
+            }
+            if (!hasNext) {
+                return;
+            }
+
             InterfaceHttpData data = decoder.next();
             if (data != null) {
                 postDatas.add(data);
             }
         }
     }
-    public void fileHttpData(HttpContent content){
-
+    public void fileHttpData(HttpContent content,boolean last){
+        try {
+            httpData.addContent(content.content(),last);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
-
 }
