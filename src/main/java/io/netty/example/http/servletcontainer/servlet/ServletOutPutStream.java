@@ -12,5 +12,6 @@ public class ServletOutPutStream extends HttpServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
 
         resp.getOutputStream().println("hello");
+        resp.getOutputStream().close();
     }
 }

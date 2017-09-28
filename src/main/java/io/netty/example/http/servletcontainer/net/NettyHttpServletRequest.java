@@ -758,8 +758,7 @@ public class NettyHttpServletRequest implements HttpServletRequest {
         if(parts!=null)
             for(InterfaceHttpData data:parts){
                data.release();
-            }
-        System.out.println("clear httpData refcount "+httpData.refCnt());
+        }
         if(httpData!=null){
            httpData.release();
         }

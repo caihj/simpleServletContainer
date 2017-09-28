@@ -37,6 +37,7 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
             new DefaultHttpDataFactory(DefaultHttpDataFactory.MINSIZE);
 
     NettyHttpServletRequest nettyRequest;
+
     NettyHttpServletResponse nettyResponse;
 
     public HttpRequestHandler(SimpleContainer container){
@@ -54,7 +55,7 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
 
             if(request.method().equals(HttpMethod.GET)){
                 container.onRequest(nettyRequest,nettyResponse);
-                nettyResponse.flushBuffer();
+                complementRequestAndResponse(nettyRequest,nettyResponse);
                 return;
             }
 
@@ -79,8 +80,7 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
             }
         }
 
-        //是否支持异步
-        boolean isAsync = false;
+
 
         if(msg instanceof HttpContent){
             if(decoder!=null){
@@ -99,12 +99,7 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
                     postDatas = new ArrayList<InterfaceHttpData>();
                     decoder.destroy();
                     container.onRequest(nettyRequest,nettyResponse);
-                    if(!isAsync){
-                        nettyResponse.flushBuffer();
-                        nettyRequest.clearRequestData();
-                        nettyRequest = null;
-                        nettyResponse = null;
-                    }
+                    complementRequestAndResponse(nettyRequest,nettyResponse);
                 }
             }else{
                 //保存post的数据到内存或者文件
@@ -115,15 +110,11 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
                     nettyRequest.setPostDatas(postDatas);
                     postDatas = new ArrayList<InterfaceHttpData>();
 
-
                     nettyRequest.setHttpData(httpData);
                     System.out.println("set httpData refcount "+httpData.refCnt());
                     httpData = null;
                     container.onRequest(nettyRequest,nettyResponse);
-                    if(!isAsync){
-                        nettyResponse.flushBuffer();
-                        nettyRequest.clearRequestData();
-                    }
+                    complementRequestAndResponse(nettyRequest,nettyResponse);
                 }
             }
         }
@@ -154,6 +145,27 @@ public class HttpRequestHandler extends SimpleChannelInboundHandler<HttpObject> 
             httpData.addContent(content.content(),last);
         } catch (IOException e) {
             e.printStackTrace();
+        }
+    }
+
+    @Override
+    public void channelWritabilityChanged(ChannelHandlerContext ctx) throws Exception {
+        super.channelWritabilityChanged(ctx);
+    }
+
+    public void complementRequestAndResponse(NettyHttpServletRequest request, NettyHttpServletResponse response){
+        if(!nettyResponse.isAsync()){
+            try {
+                nettyResponse.flushBuffer();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            nettyRequest.clearRequestData();
+            if(nettyResponse.isCloseConnection()){
+                nettyResponse.addCloseOnComplement();
+            }
+            nettyRequest = null;
+            nettyResponse = null;
         }
     }
 }

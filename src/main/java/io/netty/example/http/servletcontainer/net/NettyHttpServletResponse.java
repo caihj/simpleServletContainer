@@ -2,6 +2,9 @@ package io.netty.example.http.servletcontainer.net;
 
 import com.sun.xml.internal.fastinfoset.util.CharArray;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.example.http.servletcontainer.util.GenTools;
 import io.netty.handler.codec.CharSequenceValueConverter;
@@ -9,6 +12,7 @@ import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.cookie.DefaultCookie;
 import io.netty.handler.codec.http.cookie.ServerCookieDecoder;
 import io.netty.handler.codec.http.cookie.ServerCookieEncoder;
+import io.netty.util.concurrent.GenericFutureListener;
 
 import javax.servlet.ServletContext;
 import javax.servlet.ServletOutputStream;
@@ -23,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.Future;
 
 public class NettyHttpServletResponse implements HttpServletResponse {
 
@@ -39,6 +44,17 @@ public class NettyHttpServletResponse implements HttpServletResponse {
     private ServletContext servletContext;
 
     private List<Cookie> cookies = new ArrayList<Cookie>();
+
+    /**
+     * 是否启用了异步
+     */
+    private boolean isAsync = false;
+
+    /**
+     *
+     *当servlet处理完后，关闭连接
+     */
+    private boolean closeConnection = false;
 
     public void setServletContext(ServletContext servletContext) {
         this.servletContext = servletContext;
@@ -233,16 +249,16 @@ public class NettyHttpServletResponse implements HttpServletResponse {
 
             @Override
             public void flush() throws IOException {
+                ctx.write(buf);
                 ctx.flush();
             }
 
             @Override
             public void close() throws IOException {
-                ctx.flush();
-                ctx.close();
+                closeConnection = true;
+                flushBuffer();
             }
         };
-
 
         return outputStream;
     }
@@ -264,13 +280,14 @@ public class NettyHttpServletResponse implements HttpServletResponse {
 
             @Override
             public void flush() throws IOException {
+                ctx.write(buf);
                 ctx.flush();
             }
 
             @Override
             public void close() throws IOException {
-                ctx.flush();
-                ctx.close();
+                closeConnection = true;
+                flushBuffer();
             }
 
         };
@@ -311,22 +328,34 @@ public class NettyHttpServletResponse implements HttpServletResponse {
         return buf.capacity();
     }
 
+    /**
+     * 当发送数据完毕，关闭连接
+     */
+    public void addCloseOnComplement(){
+        ctx.writeAndFlush(Unpooled.EMPTY_BUFFER).addListener(ChannelFutureListener.CLOSE);
+    }
+
     @Override
     public void flushBuffer() throws IOException {
+
+        ChannelFuture future = null;
+
         if(isCommit){
-            ctx.write(buf);
+            future = ctx.write(buf);
             ctx.flush();
         }else{
             response = response.replace(buf);
 
             //content-length和chunk都没有，则设置缓存区的长度为 content-length
-            if(response.headers().get(HttpHeaderNames.CONTENT_LENGTH)==null && response.headers().get("Transfer-Encoding")==null) {
-                //没有设置content-length ,设置第一个缓冲区的长度
-                response.headers().set(HttpHeaderNames.CONTENT_LENGTH, buf.writerIndex());
+            if(response.headers().get(HttpHeaderNames.CONTENT_LENGTH)==null && response.headers().get(HttpHeaderNames.TRANSFER_ENCODING)==null) {
+                //没有设置content-length ,设置发送完成后连接关闭
+                response.headers().set(HttpHeaderNames.TRANSFER_ENCODING, "chunked");
+                response.headers().set(HttpHeaderNames.CONNECTION,"close");
+                if(!isAsync)
+                    closeConnection = true;
             }
 
             if(cookies.size()>0){
-
                 List<io.netty.handler.codec.http.cookie.Cookie> nettyCookies = new ArrayList<io.netty.handler.codec.http.cookie.Cookie>(cookies.size());
                 for(Cookie cookie:cookies){
                     io.netty.handler.codec.http.cookie.Cookie cookie1 = new DefaultCookie (cookie.getName(),cookie.getValue());
@@ -342,10 +371,11 @@ public class NettyHttpServletResponse implements HttpServletResponse {
                     response.headers().add(HttpHeaderNames.SET_COOKIE,str);
                 }
             }
-            ctx.write(response);
+            future = ctx.write(response);
             ctx.flush();
             isCommit = true;
         }
+
     }
 
     @Override
@@ -382,5 +412,21 @@ public class NettyHttpServletResponse implements HttpServletResponse {
     @Override
     public Locale getLocale() {
         return null;
+    }
+
+    public boolean isAsync() {
+        return isAsync;
+    }
+
+    public void setAsync(boolean async) {
+        isAsync = async;
+    }
+
+    public boolean isCloseConnection() {
+        return closeConnection;
+    }
+
+    public void setCloseConnection(boolean closeConnection) {
+        this.closeConnection = closeConnection;
     }
 }
